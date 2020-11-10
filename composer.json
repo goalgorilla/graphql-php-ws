@@ -15,6 +15,6 @@
         "sort-packages": true
     },
     "autoload": {
-        "psr-4": { "GraphQLWs\\": "src/" }
+        "psr-4": { "GraphQLWs\\": "src" }
     }
 }
