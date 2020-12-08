@@ -2,6 +2,14 @@
 
 namespace GraphQLWs;
 
+use GraphQL\Error\Error as GraphQLError;
+use GraphQL\Language\AST\NameNode;
+use GraphQL\Language\AST\OperationDefinitionNode;
+use GraphQL\Language\Parser;
+use GraphQLWs\Exception\DuplicateSubscriberException;
+use GraphQLWs\Exception\OperationNotFoundException;
+use GraphQLWs\Message\ErrorMessage;
+use OpenSocial\RealTime\GraphQLSubscriptionHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Ratchet\ConnectionInterface;
 use Ratchet\MessageComponentInterface;
@@ -17,6 +25,8 @@ use GraphQLWs\Message\ConnectionAckMessage;
 use GraphQLWs\Message\ConnectionInitMessage;
 use GraphQLWs\Message\ClientMessageInterface;
 use GraphQLWs\Message\SubscribeMessage;
+use React\Promise\PromiseInterface;
+use function React\Promise\all as promise_all;
 
 /**
  * GraphQL Subscription Server.
@@ -39,9 +49,21 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
   protected LoopInterface $loop;
 
   /**
+   * The event handlers for GraphQL subscriptions.
+   */
+  protected \SplObjectStorage $eventHandlers;
+
+  /**
    * The connected clients.
    */
   protected \SplObjectStorage $clients;
+
+  /**
+   * The instantiated GraphQL subscriptions.
+   *
+   * Used to make sure new subscriptions are passed with a unique id.
+   */
+  protected array $subscriptions = [];
 
   /**
    * The number of seconds a client has to init an opened connection.
@@ -50,11 +72,35 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
 
   /**
    * Create a new GraphQLSubscriptionServer instance.
+   *
+   * TODO: Determine whether a single subscriber can be passed or multiple can
+   *   be attached.
    */
   public function __construct(LoggerInterface $logger, LoopInterface $loop) {
     $this->logger = $logger;
     $this->loop = $loop;
+    $this->eventHandlers = new \SplObjectStorage();
     $this->clients = new \SplObjectStorage();
+  }
+
+  /**
+   * Add an event handler for subscription related events.
+   *
+   * @param \GraphQLWs\GraphQLWsEventHandlerInterface $handler
+   *   A GraphQL Subscription Event Handler instance.
+   */
+  public function addEventHandler(GraphQLWsEventHandlerInterface $handler): void {
+    $this->eventHandlers->attach($handler);
+  }
+
+  /**
+   * Remove an event handler for subscription related events.
+   *
+   * @param \GraphQLWs\GraphQLWsEventHandlerInterface $handler
+   *   A GraphQL Subscription Event Handler instance.
+   */
+  public function removeEventHandler(GraphQLWsEventHandlerInterface $handler): void {
+    $this->eventHandlers->detach($handler);
   }
 
   /**
@@ -91,29 +137,85 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
 
       switch ($msg->getType()) {
         case ConnectionInitMessage::$type:
-          // TODO: Validate authentication.
-          $metadata->markInitialised();
+          /** @var \GraphQLWs\Message\ConnectionInitMessage $msg */
 
-          $ack = new ConnectionAckMessage();
-          $this->logger->debug("> {type}", ['type' => $ack->getType()]);
-          $from->send(json_encode($ack->jsonSerialize()));
+          // TODO: The below implementation does not yet allow for asynchronous
+          //   authentication verification. This should be made possible.
+          // Let the event handlers do their thing. They can throw an exception
+          // if they wish to close the connection.
+          $this->delegateOnConnectionInit($from, $msg->getPayload());
+
+          // If we reach this then we can trust the connection.
+          $metadata->markInitialised();
+          $from->send(json_encode((new ConnectionAckMessage())->jsonSerialize()));
           break;
 
         case SubscribeMessage::$type:
+          /** @var \GraphQLWs\Message\SubscribeMessage $msg */
           // A connection must be initialized before it can subscribe.
           if (!$metadata->isInitialized()) {
             throw new UnauthorizedException();
           }
           print_r($msg->jsonSerialize());
-          // TODO: Implement delegate onSubscription.
+          // Verify this connection ID is not already in use.
+          if (isset($this->subscriptions[$msg->getId()])) {
+            throw new DuplicateSubscriberException($msg->getId());
+          }
+          // Associate the subscription ID with this client.
+          $this->subscriptions[$msg->getId()] = $from;
+
+          // TODO: The query can currently be a Query/Mutation in addition to a
+          //   subscription, this should be checked.
+          try {
+            $document = Parser::parse($msg->getQuery());
+
+            // Make sure there's at least something in the query.
+            if ($document->definitions->count() === 0) {
+              throw new OperationNotFoundException("Must provide at least one subscription operation.");
+            }
+
+            // If there is an operation name specified, find that operation in
+            // the query. If no name is specified, use the specified operation
+            // if it's the only operation specified.
+            $operation = NULL;
+
+            if ($msg->getOperationName() !== NULL) {
+              foreach ($document->definitions->getIterator() as $node) {
+                if ($node instanceof OperationDefinitionNode && $node->name instanceof NameNode && $node->name->value === $msg->getOperationName()) {
+                  $operation = $node;
+                  break;
+                }
+              }
+            }
+            elseif ($document->definitions->count() === 1 && $document->definitions->offsetGet(0) instanceof OperationDefinitionNode) {
+              $operation = $document->definitions->offsetGet(0);
+            }
+
+            // If no operation was found we can't continue.
+            if ($operation === NULL) {
+              throw new OperationNotFoundException('Could not identify operation.');
+            }
+
+            $this->delegateOnSubscribe($msg->getId(), $from, $operation, $msg->getOperationName(), $msg->getVariables());
+          }
+          catch (GraphQLError $e) {
+            $error = new ErrorMessage($msg->getId(), [$e]);
+
+            $this->logger->error(json_encode($error->jsonSerialize(), JSON_PRETTY_PRINT));
+            $from->send(json_encode($error->jsonSerialize()));
+          }
+
           break;
 
         case CompleteMessage::$type:
-          // No need to clean up as onClose will be called when the connection
-          // closes and cleanup should be done there.
-          $from->close();
+          /** @var \GraphQLWs\Message\CompleteMessage $msg */
+          // Verify that the closed subscription belongs to this connection.
+          if (!isset($this->subscriptions[$msg->getId()]) || $this->subscriptions[$msg->getId()] !== $from) {
+            throw new InvalidMessageException("The provided subscription is not established or does not belong to this client.");
+          }
 
-          // TODO: Implement delegate unsubscribe.
+          unset($this->subscriptions[$msg->getId()]);
+          $this->delegateOnComplete($msg->getId());
           break;
 
         default:
@@ -122,7 +224,7 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
 
     }
     catch (ConnectionExceptionInterface $e) {
-      // TODO: Log error for our own info.
+      // TODO: Log error for our own info, what level should client errors be?
       $from->close($e->getCode());
     }
 
@@ -133,6 +235,13 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
    */
   public function onClose(ConnectionInterface $conn) {
     $conn = $this->assertWsConnection($conn);
+
+    // Unregister any subscriptions for this client.
+    $subscriptions = array_filter($this->subscriptions, static fn ($c) => $c === $conn);
+    foreach (array_keys($subscriptions) as $subscription_id) {
+      unset($this->subscriptions[$subscription_id]);
+      $this->delegateOnComplete($subscription_id);
+    }
 
     $this->clients->detach($conn);
   }
@@ -189,6 +298,71 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
 
       default:
         throw new InvalidMessageException("Unsupported type '{$data['type']}'");
+    }
+  }
+
+  /**
+   * Calls the onConnectionInit method for all registered event handlers.
+   *
+   * @See GraphQLWsInitHandlerInterface::onConnectionInit().
+   */
+  protected function delegateOnConnectionInit(WsConnection $client, ?array $payload) : PromiseInterface {
+    // By default we indicate that access is allowed.
+    $promises = [];
+
+    foreach ($this->eventHandlers as $handler) {
+      if ($handler instanceof GraphQLWsInitHandlerInterface) {
+        $promises[] = $handler->onConnectionInit($client, $payload);
+      }
+    }
+
+    return promise_all($promises)
+      ->then(
+        // A connection is accepted if none of the handlers indicate that it
+        // shouldn't be accepted (they all resolve to TRUE). The default is TRUE
+        // so that connections with no init event handlers are accepted.
+        fn (array $results) => array_reduce(
+          $results,
+          static fn ($acc, $result) => $acc && $result,
+          TRUE
+        ),
+        // In case of an unhandled error we can't accept the connection.
+        function (\Exception $e) {
+          $this->logger->error(
+            "Unhandled Exception in ConnectionInit event handler.\n{message}\n{backtrace}",
+            [
+              'message' => $e->getMessage(),
+              'backtrace' => $e->getTraceAsString(),
+            ]
+          );
+          return FALSE;
+        }
+      );
+  }
+
+  /**
+   * Calls the onSubscribe method for all registered event handlers.
+   *
+   * @See GraphQLWsSubscriberInterface::onSubscribe().
+   */
+  protected function delegateOnSubscribe(string $subscription_id, WsConnection $client, OperationDefinitionNode $query, ?string $operationName = NULL, ?array $variables = NULL) : void {
+    foreach ($this->eventHandlers as $handler) {
+      if ($handler instanceof GraphQLWsSubscriberInterface) {
+        $handler->onSubscribe($subscription_id, $client, $query, $operationName, $variables);
+      }
+    }
+  }
+
+  /**
+   * Calls the onComplete method for all registered event handlers.
+   *
+   * @See GraphQLWsSubscriberInterface::onComplete().
+   */
+  protected function delegateOnComplete(string $subcription_id) {
+    foreach ($this->eventHandlers as $handler) {
+      if ($handler instanceof GraphQLWsSubscriberInterface) {
+        $handler->onComplete($subcription_id);
+      }
     }
   }
 
