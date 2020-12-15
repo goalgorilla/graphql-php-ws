@@ -10,6 +10,7 @@ use GraphQL\Language\Parser;
 use GraphQL\Utils\AST;
 use GraphQLWs\Exception\DuplicateSubscriberException;
 use GraphQLWs\Exception\OperationNotFoundException;
+use GraphQLWs\Exception\UnsupportedOperationException;
 use GraphQLWs\Message\ErrorMessage;
 use Psr\Log\LoggerInterface;
 use Ratchet\ConnectionInterface;
@@ -166,8 +167,6 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
           // Associate the subscription ID with this client.
           $this->subscriptions[$msg->getId()] = $from;
 
-          // TODO: The query can currently be a Query/Mutation in addition to a
-          //   subscription, this should be checked.
           try {
             $document = Parser::parse($msg->getQuery());
 
@@ -175,6 +174,12 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
             $operation = AST::getOperationAST($document, $msg->getOperationName());
             if ($operation === NULL) {
               throw new OperationNotFoundException('Could not identify operation.');
+            }
+
+            // We don't currently support anything besides subscriptions.
+            // TODO: Implement query and mutation support in this library.
+            if ($operation->operation !== 'subscription') {
+              throw new UnsupportedOperationException("This server only supports 'subscription' operations.");
             }
 
             $this->delegateOnSubscribe($msg->getId(), $from, $document, $msg->getOperationName(), $msg->getVariables());
