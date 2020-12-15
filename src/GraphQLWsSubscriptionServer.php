@@ -7,6 +7,7 @@ use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\AST\NameNode;
 use GraphQL\Language\AST\OperationDefinitionNode;
 use GraphQL\Language\Parser;
+use GraphQL\Utils\AST;
 use GraphQLWs\Exception\DuplicateSubscriberException;
 use GraphQLWs\Exception\OperationNotFoundException;
 use GraphQLWs\Message\ErrorMessage;
@@ -170,41 +171,8 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
           try {
             $document = Parser::parse($msg->getQuery());
 
-            // Make sure there's at least something in the query.
-            if ($document->definitions->count() === 0) {
-              throw new OperationNotFoundException("Must provide at least one subscription operation.");
-            }
-
-            // If there is an operation name specified, find that operation in
-            // the query. If no name is specified, use the specified operation
-            // if it's the only operation specified.
-            // This implementation follows the logic from
-            // https://github.com/graphql/graphql-js/blob/7b3241329e1ff49fb647b043b80568f0cf9e1a7c/src/utilities/getOperationAST.js
-            $operation = NULL;
-            $operation_name = $msg->getOperationName();
-
-            // Replace this with Utils::getOperationAST the following is fiexed.
-            // https://github.com/webonyx/graphql-php/issues/754
-            foreach ($document->definitions->getIterator() as $node) {
-              if ($node instanceof OperationDefinitionNode) {
-                if ($operation_name === NULL) {
-                  // If no operation name was provided, only return an Operation
-                  // if there is one defined in the document. Upon encountering
-                  // the second, return null.
-                  if ($operation !== NULL) {
-                    $operation = NULL;
-                    break;
-                  }
-                  $operation = $node;
-                }
-                elseif ($node->name instanceof NameNode && $node->name->value === $msg->getOperationName()) {
-                  $operation = $node;
-                  break;
-                }
-              }
-            }
-
             // If no operation was found we can't continue.
+            $operation = AST::getOperationAST($document, $msg->getOperationName());
             if ($operation === NULL) {
               throw new OperationNotFoundException('Could not identify operation.');
             }
