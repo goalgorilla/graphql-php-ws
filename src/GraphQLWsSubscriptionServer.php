@@ -156,11 +156,12 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
           if (!$metadata->isInitialized()) {
             throw new UnauthorizedException();
           }
-          print_r($msg->jsonSerialize());
+
           // Verify this connection ID is not already in use.
           if (isset($this->subscriptions[$msg->getId()])) {
             throw new DuplicateSubscriberException($msg->getId());
           }
+
           // Associate the subscription ID with this client.
           $this->subscriptions[$msg->getId()] = $from;
 
@@ -177,18 +178,28 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
             // If there is an operation name specified, find that operation in
             // the query. If no name is specified, use the specified operation
             // if it's the only operation specified.
+            // This implementation follows the logic from
+            // https://github.com/graphql/graphql-js/blob/7b3241329e1ff49fb647b043b80568f0cf9e1a7c/src/utilities/getOperationAST.js
             $operation = NULL;
+            $operation_name = $msg->getOperationName();
 
-            if ($msg->getOperationName() !== NULL) {
-              foreach ($document->definitions->getIterator() as $node) {
-                if ($node instanceof OperationDefinitionNode && $node->name instanceof NameNode && $node->name->value === $msg->getOperationName()) {
+            foreach ($document->definitions->getIterator() as $node) {
+              if ($node instanceof OperationDefinitionNode) {
+                if ($operation_name === NULL) {
+                  // If no operation name was provided, only return an Operation
+                  // if there is one defined in the document. Upon encountering
+                  // the second, return null.
+                  if ($operation !== NULL) {
+                    $operation = NULL;
+                    break;
+                  }
+                  $operation = $node;
+                }
+                elseif ($node->name instanceof NameNode && $node->name->value === $msg->getOperationName()) {
                   $operation = $node;
                   break;
                 }
               }
-            }
-            elseif ($document->definitions->count() === 1 && $document->definitions->offsetGet(0) instanceof OperationDefinitionNode) {
-              $operation = $document->definitions->offsetGet(0);
             }
 
             // If no operation was found we can't continue.
