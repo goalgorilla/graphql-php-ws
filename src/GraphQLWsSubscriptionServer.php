@@ -3,13 +3,13 @@
 namespace GraphQLWs;
 
 use GraphQL\Error\Error as GraphQLError;
+use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\AST\NameNode;
 use GraphQL\Language\AST\OperationDefinitionNode;
 use GraphQL\Language\Parser;
 use GraphQLWs\Exception\DuplicateSubscriberException;
 use GraphQLWs\Exception\OperationNotFoundException;
 use GraphQLWs\Message\ErrorMessage;
-use OpenSocial\RealTime\GraphQLSubscriptionHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Ratchet\ConnectionInterface;
 use Ratchet\MessageComponentInterface;
@@ -183,6 +183,8 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
             $operation = NULL;
             $operation_name = $msg->getOperationName();
 
+            // Replace this with Utils::getOperationAST the following is fiexed.
+            // https://github.com/webonyx/graphql-php/issues/754
             foreach ($document->definitions->getIterator() as $node) {
               if ($node instanceof OperationDefinitionNode) {
                 if ($operation_name === NULL) {
@@ -207,7 +209,7 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
               throw new OperationNotFoundException('Could not identify operation.');
             }
 
-            $this->delegateOnSubscribe($msg->getId(), $from, $operation, $msg->getOperationName(), $msg->getVariables());
+            $this->delegateOnSubscribe($msg->getId(), $from, $document, $msg->getOperationName(), $msg->getVariables());
           }
           catch (GraphQLError $e) {
             $error = new ErrorMessage($msg->getId(), [$e]);
@@ -356,10 +358,10 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
    *
    * @See GraphQLWsSubscriberInterface::onSubscribe().
    */
-  protected function delegateOnSubscribe(string $subscription_id, WsConnection $client, OperationDefinitionNode $query, ?string $operationName = NULL, ?array $variables = NULL) : void {
+  protected function delegateOnSubscribe(string $subscription_id, WsConnection $client, DocumentNode $document, ?string $operationName = NULL, ?array $variables = NULL) : void {
     foreach ($this->eventHandlers as $handler) {
       if ($handler instanceof GraphQLWsSubscriberInterface) {
-        $handler->onSubscribe($subscription_id, $client, $query, $operationName, $variables);
+        $handler->onSubscribe($subscription_id, $client, $document, $operationName, $variables);
       }
     }
   }

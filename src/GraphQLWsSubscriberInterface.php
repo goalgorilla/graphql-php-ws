@@ -2,7 +2,7 @@
 
 namespace GraphQLWs;
 
-use GraphQL\Language\AST\OperationDefinitionNode;
+use GraphQL\Language\AST\DocumentNode;
 use Ratchet\WebSocket\WsConnection;
 
 /**
@@ -23,14 +23,14 @@ interface GraphQLWsSubscriberInterface extends GraphQLWsEventHandlerInterface {
    * @param \Ratchet\WebSocket\WsConnection $client
    *   The WebSocket connection that requested the subscription. This can be
    *   stored to send data that the subscription requested.
-   * @param \GraphQL\Language\AST\OperationDefinitionNode $query
-   *   The GraphQL query for this subscription.
+   * @param \GraphQL\Language\AST\DocumentNode $document
+   *   The GraphQL document for this subscription.
    * @param string|null $operationName
    *   The operation name if provided by the GraphQL client.
    * @param array|null $variables
    *   The variables provided by the client for the query, if any.
    */
-  public function onSubscribe(string $subscription_id, WsConnection $client, OperationDefinitionNode $query, ?string $operationName = NULL, ?array $variables = NULL) : void;
+  public function onSubscribe(string $subscription_id, WsConnection $client, DocumentNode $document, ?string $operationName = NULL, ?array $variables = NULL) : void;
 
   /**
    * Event handler for closing subscriptions.
