@@ -2,7 +2,7 @@
     "name": "goalgorilla/graphql-php-ws",
     "description": "GraphQL WebSocket middleware for Ratchet.",
     "type": "library",
-    "license": "proprietary",
+    "license": "MIT",
     "require": {
         "php": ">=7.4",
         "ext-json": "*",
