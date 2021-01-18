@@ -13,6 +13,11 @@ use GraphQLWs\Exception\TooManyInitialisationRequestsException;
 class ConnectionMetadata {
 
   /**
+   * Whether this connection is authenticated and can perform operations.
+   */
+  private bool $connectionAccepted = FALSE;
+
+  /**
    * A callback that cancels the connection request timeout.
    *
    * Connections should be initialised with a single ConnectionInit message
@@ -43,27 +48,46 @@ class ConnectionMetadata {
   }
 
   /**
-   * Whether this connection has been successfully initialised.
+   * Whether this connection has sent its initialisation message.
    *
    * @return bool
-   *   Whether this connection has been successfully initialised.
+   *   Whether this connection has sent its initialisation message.
    */
   public function isInitialized() : bool {
     return $this->cancelInitTimeoutCb === NULL;
   }
 
   /**
-   * Marks a connection as initialised.
+   * Marks a connection as having started initialization.
    *
    * @throws \GraphQLWs\Exception\TooManyInitialisationRequestsException
-   *   Thrown when a connection was previously initialised.
+   *   Thrown when initialization was already attempted.
    */
-  public function markInitialised() : void {
+  public function initialise() : void {
     if ($this->isInitialized()) {
       throw new TooManyInitialisationRequestsException();
     }
 
     $this->cancelInitTimeout();
+  }
+
+  /**
+   * Whether this connection is authenticated and can perform operations.
+   *
+   * @return bool
+   *   Whether this connection is authenticated and can perform operations.
+   */
+  public function isAccepted() : bool {
+    return $this->connectionAccepted;
+  }
+
+  /**
+   * Accept the connection.
+   *
+   * This will allow it to perform operations.
+   */
+  public function accept() : void {
+    $this->connectionAccepted = TRUE;
   }
 
   /**

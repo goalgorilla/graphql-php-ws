@@ -141,21 +141,33 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
         case ConnectionInitMessage::$type:
           /** @var \GraphQLWs\Message\ConnectionInitMessage $msg */
 
-          // TODO: The below implementation does not yet allow for asynchronous
-          //   authentication verification. This should be made possible.
-          // Let the event handlers do their thing. They can throw an exception
-          // if they wish to close the connection.
-          $this->delegateOnConnectionInit($from, $msg->getPayload());
+          $metadata->initialise();
+          $this->delegateOnConnectionInit($from, $msg->getPayload())
+            ->then(
+              function ($isAccepted) use ($metadata, $from) {
+                // If one of the authentication handlers did not accept the
+                // connection then we close it.
+                if (!$isAccepted) {
+                  $from->close();
+                  return;
+                }
 
-          // If we reach this then we can trust the connection.
-          $metadata->markInitialised();
-          $from->send(json_encode((new ConnectionAckMessage())->jsonSerialize()));
+                // Otherwise we mark the connection as accepted and send a
+                // connection acknowledgement.
+                $metadata->accept();
+                $from->send(json_encode((new ConnectionAckMessage())->jsonSerialize()));
+              },
+              // If we encounter any errors we can't authenticate so we close
+              // the connection.
+              fn () => $from->close()
+            );
+
           break;
 
         case SubscribeMessage::$type:
           /** @var \GraphQLWs\Message\SubscribeMessage $msg */
           // A connection must be initialized before it can subscribe.
-          if (!$metadata->isInitialized()) {
+          if (!$metadata->isAccepted()) {
             throw new UnauthorizedException();
           }
 
