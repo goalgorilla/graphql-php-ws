@@ -16,5 +16,12 @@
     },
     "autoload": {
         "psr-4": { "GraphQLWs\\": "src" }
+    },
+    "extra": {
+      "patches": {
+        "webonyx/graphql-php": {
+          "PR #755 Implement Utils::getOperationAST": "patches/graphql-php-add-getoperationast-pr-755.diff"
+        }
+      }
     }
 }
