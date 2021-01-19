@@ -20,7 +20,7 @@
     "extra": {
       "patches": {
         "webonyx/graphql-php": {
-          "PR #755 Implement Utils::getOperationAST": "patches/graphql-php-add-getoperationast-pr-755.diff"
+          "PR #755 Implement Utils::getOperationAST": "https://www.drupal.org/files/issues/2021-01-19/graphql-php-add-getoperationast-pr-755.diff"
         }
       }
     }
