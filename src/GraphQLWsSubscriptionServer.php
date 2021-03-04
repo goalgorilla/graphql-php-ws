@@ -143,7 +143,7 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
 
           $metadata->initialise();
           $this->delegateOnConnectionInit($from, $msg->getPayload())
-            ->then(
+            ->done(
               function ($isAccepted) use ($metadata, $from) {
                 // If one of the authentication handlers did not accept the
                 // connection then we close it.
@@ -156,10 +156,7 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
                 // connection acknowledgement.
                 $metadata->accept();
                 $from->send(json_encode((new ConnectionAckMessage())->jsonSerialize()));
-              },
-              // If we encounter any errors we can't authenticate so we close
-              // the connection.
-              fn () => $from->close()
+              }
             );
 
           break;
@@ -324,15 +321,29 @@ class GraphQLWsSubscriptionServer implements MessageComponentInterface, WsServer
           static fn ($acc, $result) => $acc && $result,
           TRUE
         ),
-        // In case of an unhandled error we can't accept the connection.
-        function (\Exception $e) {
-          $this->logger->error(
-            "Unhandled Exception in ConnectionInit event handler.\n{message}\n{backtrace}",
-            [
-              'message' => $e->getMessage(),
-              'backtrace' => $e->getTraceAsString(),
-            ]
-          );
+        // If we encounter any unhandled rejections we can't authenticate so we
+        // also deny authentication.
+        function ($e) {
+          // Provide developers with information. The correct way to
+          // reject authentication is to return FALSE from the handler.
+          // Any errors should be handled in the handler itself.
+          if ($e instanceof \Throwable) {
+            $this->logger->error(
+              "Unhandled exception in authentication handler: {message}\n{file}:{line}",
+              [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+              ]
+            );
+          }
+          else {
+            $this->logger->error(
+              "Unhandled error in authentication handler: {rejection}",
+              ['rejection' => json_encode($e)]
+            );
+          }
+
           return FALSE;
         }
       );
