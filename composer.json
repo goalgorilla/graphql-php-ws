@@ -9,19 +9,12 @@
         "bunny/bunny": "^0.4.3",
         "cboden/ratchet": "^0.4.3",
         "psr/log": "^1",
-        "webonyx/graphql-php": "^14.3"
+        "webonyx/graphql-php": "^14.8"
     },
     "config": {
         "sort-packages": true
     },
     "autoload": {
         "psr-4": { "GraphQLWs\\": "src" }
-    },
-    "extra": {
-      "patches": {
-        "webonyx/graphql-php": {
-          "PR #755 Implement Utils::getOperationAST": "https://www.drupal.org/files/issues/2021-01-19/graphql-php-add-getoperationast-pr-755.diff"
-        }
-      }
     }
 }
