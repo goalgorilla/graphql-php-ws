@@ -6,7 +6,7 @@
     "require": {
         "php": ">=7.4",
         "ext-json": "*",
-        "bunny/bunny": "^0.4.3",
+        "bunny/bunny": "^0.5.1",
         "cboden/ratchet": "^0.4.3",
         "psr/log": "^1",
         "webonyx/graphql-php": "^14.8"
