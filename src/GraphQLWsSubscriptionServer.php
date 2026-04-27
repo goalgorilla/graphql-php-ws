@@ -4,8 +4,6 @@ namespace GraphQLWs;
 
 use GraphQL\Error\Error as GraphQLError;
 use GraphQL\Language\AST\DocumentNode;
-use GraphQL\Language\AST\NameNode;
-use GraphQL\Language\AST\OperationDefinitionNode;
 use GraphQL\Language\Parser;
 use GraphQL\Utils\AST;
 use GraphQLWs\Exception\DuplicateSubscriberException;
